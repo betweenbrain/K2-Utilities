@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension version="3.2" type="plugin" group="system" method="upgrade">
+	<author>Matt Thomas</author>
+	<authorEmail>matt@betweenbrain.com</authorEmail>
+	<authorUrl>http://betweenbrain.com</authorUrl>
+	<copyright>(C) 2014 Matt Thomas. All rights reserved.</copyright>
+	<creationDate>March 12, 2014</creationDate>
+	<description>PLG_SYSTEM_K2UTILITIES_DESC</description>
+	<license>GNU/GPL v2 or later</license>
+	<name>plg_k2utilities</name>
+	<scriptfile>script.php</scriptfile>
+	<version>0.2-alpha</version>
+
+	<files>
+		<filename plugin="k2utilities">k2utilities.php</filename>
+		<folder>language</folder>
+	</files>
+
+</extension>
