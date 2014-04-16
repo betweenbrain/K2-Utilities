@@ -50,6 +50,10 @@ class plgSystemK2utilities extends JPlugin
 
 					$this->migrateFields($this->getK2Items());
 					break;
+
+				case('enable_plugins'):
+					$this->enablePluginParam();
+					break;
 			}
 
 		}
@@ -72,6 +76,62 @@ class plgSystemK2utilities extends JPlugin
 		$this->checkDbError();
 
 		return $k2items;
+	}
+
+	/**
+	 * Gets the IDs and Titles of all K2 items in the database
+	 *
+	 * @param $categoryId
+	 *
+	 * @return mixed
+	 */
+	private function getK2ContentModules()
+	{
+		$query = ' SELECT *
+		FROM ' . $this->db->nameQuote('#__modules') .
+			' WHERE ' . $this->db->nameQuote('module') . ' = ' . $this->db->quote('mod_k2_content');
+
+		$this->db->setQuery($query);
+		$k2modules = $this->db->loadObjectList();
+		$this->checkDbError();
+
+		return $k2modules;
+	}
+
+	/**
+	 * Sets a K2 module's params to enable plugins
+	 */
+	private function enablePluginParam()
+	{
+		foreach ($this->getK2ContentModules() as $module)
+		{
+			$params              = parse_ini_string($module->params, false, INI_SCANNER_RAW);
+			$params['K2Plugins'] = 1;
+			$this->setModuleParams($module, $params);
+		}
+	}
+
+	/**
+	 * Updates a module's parameters with the passed params array
+	 *
+	 * @param $module object
+	 * @param $params array
+	 */
+	private function setModuleParams($module, $params)
+	{
+		$query = ' UPDATE ' . $this->db->nameQuote('#__modules') .
+			' SET ' . $this->db->nameQuote('params') . ' = ' . $this->db->quote($this->createIniString($params)) .
+			' WHERE ' . $this->db->nameQuote('id') . ' = ' . $this->db->quote($module->id);
+
+		$this->db->setQuery($query);
+
+		if ($this->db->query())
+		{
+			JFactory::getApplication()->enqueueMessage('Updating ' . $module->title);
+		}
+
+		$this->checkDbError();
+
 	}
 
 	/**
@@ -110,7 +170,7 @@ class plgSystemK2utilities extends JPlugin
 	{
 		foreach ($items as $item)
 		{
-			$plugins = parse_ini_string($item->plugins);
+			$plugins = parse_ini_string($item->plugins, false, INI_SCANNER_RAW);
 
 			if (property_exists($item, 'extra_fields'))
 			{
