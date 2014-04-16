@@ -10,6 +10,7 @@
  */
 
 jimport('joomla.application.application');
+jimport('joomla.environment.request');
 
 class plgSystemK2utilities extends JPlugin
 {
@@ -34,7 +35,7 @@ class plgSystemK2utilities extends JPlugin
 	 */
 	function onAfterRoute()
 	{
-		if ($this->app->isAdmin() && ($action = $this->app->input->get('k2utils')))
+		if ($this->app->isAdmin() && ($action = JRequest::getVar('k2utils')))
 		{
 
 			switch ($action)
@@ -43,6 +44,11 @@ class plgSystemK2utilities extends JPlugin
 
 					$this->resetK2Aliases($this->getK2Items());
 
+					break;
+
+				case('migrate_fields'):
+
+					$this->migrateFields($this->getK2Items());
 					break;
 			}
 
@@ -58,10 +64,8 @@ class plgSystemK2utilities extends JPlugin
 	 */
 	private function getK2Items()
 	{
-
-		$query = $this->db->getQuery(true);
-		$query->select($this->db->quoteName(array('id', 'title')))
-			->from($this->db->quoteName('#__k2_items'));
+		$query = ' SELECT *
+		FROM ' . $this->db->nameQuote('#__k2_items');
 
 		$this->db->setQuery($query);
 		$k2items = $this->db->loadObjectList();
@@ -79,10 +83,10 @@ class plgSystemK2utilities extends JPlugin
 	{
 		foreach ($items as $item)
 		{
-			$query = $this->db->getQuery(true);
-			$query->update($this->db->quoteName('#__k2_items'))
-				->set($this->db->quoteName('alias') . ' = ' . $this->db->quote(JFilterOutput::stringURLSafe($item->title)))
-				->where($this->db->quoteName('id') . ' = ' . $this->db->quote($item->id));
+
+			$query = ' UPDATE ' . $this->db->nameQuote('#__k2_items') .
+				' SET ' . $this->db->nameQuote('alias') . ' = ' . $this->db->quote(JFilterOutput::stringURLSafe($item->title)) .
+				' WHERE ' . $this->db->nameQuote('id') . ' = ' . $this->db->quote($item->id);
 
 			$this->db->setQuery($query);
 
@@ -93,6 +97,99 @@ class plgSystemK2utilities extends JPlugin
 
 			$this->checkDbError();
 		}
+	}
+
+	/**
+	 * Creates plugins data array based on existing extra fields and fields designated in URL
+	 *
+	 * ?k2utils=migrate_fields&field[itemImage]&field[imageCaption]&plugin=universal_fields
+	 *
+	 * @param $items
+	 */
+	private function migrateFields($items)
+	{
+		foreach ($items as $item)
+		{
+			$plugins = parse_ini_string($item->plugins);
+
+			if (property_exists($item, 'extra_fields'))
+			{
+				foreach (json_decode($item->extra_fields) as $extra_field)
+				{
+					$value = json_decode($this->lookupExtraField($extra_field)->value);
+
+					if (array_key_exists($value[0]->alias, JRequest::getVar('field')))
+					{
+						$plugins[JRequest::getVar('plugin') . $value[0]->alias] = $extra_field->value;
+					}
+				}
+			}
+
+			$item->plugins = $this->createIniString($plugins);
+
+			$this->updatePluginsData($item);
+
+		}
+
+	}
+
+	/**
+	 * Creates and INI string from passed data
+	 *
+	 * @param $data
+	 *
+	 * @return null|string
+	 */
+	private function createIniString($data)
+	{
+		$iniString = null;
+		foreach ($data as $key => $value)
+		{
+			$iniString .= $key . '=' . $value . "\n";
+		}
+
+		return $iniString;
+	}
+
+	/**
+	 * Updates the plugins column of the appropriate K2 item
+	 *
+	 * @param $item
+	 */
+	private function updatePluginsData($item)
+	{
+		$query = 'UPDATE ' . $this->db->nameQuote('#__k2_items') .
+			' SET ' . $this->db->nameQuote('plugins') . ' = ' . $this->db->quote($item->plugins) .
+			' WHERE ' . $this->db->nameQuote('id') . ' = ' . $this->db->quote($item->id);
+
+		$this->db->setQuery($query);
+
+		if ($this->db->query())
+		{
+			$this->app->enqueueMessage('Updating plugins data for ' . $item->title);
+		}
+
+		$this->checkDbError();
+	}
+
+	/**
+	 * Retrieves extra field definition from item values
+	 *
+	 * @param $extra_field
+	 *
+	 * @return mixed
+	 */
+	private function lookupExtraField($extra_field)
+	{
+		$query = ' SELECT *
+			 FROM ' . $this->db->nameQuote('#__k2_extra_fields') .
+			' WHERE ' . $this->db->nameQuote('id') . ' = ' . $this->db->quote($extra_field->id);
+
+		$this->db->setQuery($query);
+		$k2item = $this->db->loadObject();
+		$this->checkDbError();
+
+		return $k2item;
 	}
 
 	/**
