@@ -105,10 +105,29 @@ class plgSystemK2utilities extends JPlugin
 	{
 		foreach ($this->getK2ContentModules() as $module)
 		{
-			$params              = parse_ini_string($module->params, false, INI_SCANNER_RAW);
+			$params              = $this->parseIni($module->params);
 			$params['K2Plugins'] = 1;
 			$this->setModuleParams($module, $params);
 		}
+	}
+
+	/**
+	 * Parses an ini string while preserving whitespace
+	 *
+	 * @param $ini
+	 *
+	 * @return array
+	 */
+	private function parseIni($ini)
+	{
+		$result = array();
+		foreach (explode("\n", rtrim($ini, "\n")) as $string)
+		{
+			$parts             = explode("=", $string);
+			$result[$parts[0]] = $parts[1];
+		}
+
+		return $result;
 	}
 
 	/**
