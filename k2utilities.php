@@ -51,11 +51,70 @@ class plgSystemK2utilities extends JPlugin
 					$this->migrateFields($this->getK2Items());
 					break;
 
+				case('migrate_plugins'):
+
+					$this->migratePluginsData($this->getK2Items());
+					break;
+
 				case('enable_plugins'):
 					$this->enablePluginParam();
 					break;
+
+				case('rewrite_plugins_ini'):
+					$this->rewritePluginsIni();
+					break;
+
+			}
+		}
+	}
+
+	/**
+	 * Checks for any database errors after running a query
+	 *
+	 * @param null $backtrace
+	 */
+	private function checkDbError($backtrace = null)
+	{
+		if ($error = $this->db->getErrorMsg())
+		{
+			if ($backtrace)
+			{
+				$e = new Exception();
+				$error .= "\n" . $e->getTraceAsString();
 			}
 
+			JError::raiseWarning(100, $error);
+		}
+	}
+
+	/**
+	 * Creates and INI string from passed data
+	 *
+	 * @param $data
+	 *
+	 * @return null|string
+	 */
+	private function createIniString($data)
+	{
+		$iniString = null;
+		foreach ($data as $key => $value)
+		{
+			$iniString .= $key . '=' . $value . PHP_EOL;
+		}
+
+		return $iniString;
+	}
+
+	/**
+	 * Sets a K2 module's params to enable plugins
+	 */
+	private function enablePluginParam()
+	{
+		foreach ($this->getK2ContentModules() as $module)
+		{
+			$params              = $this->parseIni($module->params);
+			$params['K2Plugins'] = 1;
+			$this->setModuleParams($module, $params);
 		}
 	}
 
@@ -99,83 +158,23 @@ class plgSystemK2utilities extends JPlugin
 	}
 
 	/**
-	 * Sets a K2 module's params to enable plugins
-	 */
-	private function enablePluginParam()
-	{
-		foreach ($this->getK2ContentModules() as $module)
-		{
-			$params              = $this->parseIni($module->params);
-			$params['K2Plugins'] = 1;
-			$this->setModuleParams($module, $params);
-		}
-	}
-
-	/**
-	 * Parses an ini string while preserving whitespace
+	 * Retrieves extra field definition from item values
 	 *
-	 * @param $ini
+	 * @param $extra_field
 	 *
-	 * @return array
+	 * @return mixed
 	 */
-	private function parseIni($ini)
+	private function lookupExtraField($extra_field)
 	{
-		$result = array();
-		foreach (explode("\n", rtrim($ini, "\n")) as $string)
-		{
-			$parts             = explode("=", $string);
-			$result[$parts[0]] = $parts[1];
-		}
-
-		return $result;
-	}
-
-	/**
-	 * Updates a module's parameters with the passed params array
-	 *
-	 * @param $module object
-	 * @param $params array
-	 */
-	private function setModuleParams($module, $params)
-	{
-		$query = ' UPDATE ' . $this->db->nameQuote('#__modules') .
-			' SET ' . $this->db->nameQuote('params') . ' = ' . $this->db->quote($this->createIniString($params)) .
-			' WHERE ' . $this->db->nameQuote('id') . ' = ' . $this->db->quote($module->id);
+		$query = ' SELECT *
+			 FROM ' . $this->db->nameQuote('#__k2_extra_fields') .
+			' WHERE ' . $this->db->nameQuote('id') . ' = ' . $this->db->quote($extra_field->id);
 
 		$this->db->setQuery($query);
-
-		if ($this->db->query())
-		{
-			JFactory::getApplication()->enqueueMessage('Updating ' . $module->title);
-		}
-
+		$k2item = $this->db->loadObject();
 		$this->checkDbError();
 
-	}
-
-	/**
-	 * Resets all K2 item's alias field to be the default based on title
-	 *
-	 * @param $items
-	 */
-	private function resetK2Aliases($items)
-	{
-		foreach ($items as $item)
-		{
-
-			$query = ' UPDATE ' . $this->db->nameQuote('#__k2_items') .
-				' SET ' . $this->db->nameQuote('alias') . ' = ' . $this->db->quote(JFilterOutput::stringURLSafe($item->title)) .
-				' WHERE ' . $this->db->nameQuote('id') . ' = ' . $this->db->quote($item->id);
-
-			$this->db->setQuery($query);
-
-			if ($this->db->query())
-			{
-				JFactory::getApplication()->enqueueMessage('Updating ' . $item->title);
-			}
-
-			$this->checkDbError();
-		}
+		return $k2item;
 	}
 
 	/**
@@ -213,21 +212,113 @@ class plgSystemK2utilities extends JPlugin
 	}
 
 	/**
-	 * Creates and INI string from passed data
+	 * Migrates K2 plugins data from one plugin field to another plugin field
 	 *
-	 * @param $data
+	 * @param $items
 	 *
-	 * @return null|string
+	 * ?k2utils=migrate_plugins&newPlugin=universal_fieldsitemImage&oldPlugin=video_datavideoImageUrl
 	 */
-	private function createIniString($data)
+	private function migratePluginsData($items)
 	{
-		$iniString = null;
-		foreach ($data as $key => $value)
+		foreach ($items as $item)
 		{
-			$iniString .= $key . '=' . $value . "\n";
+			$plugins = parse_ini_string($item->plugins, false, INI_SCANNER_RAW);
+
+			if ($plugins[JRequest::getVar('oldPlugin')] != '')
+			{
+				$plugins[JRequest::getVar('newPlugin')] = $plugins[JRequest::getVar('oldPlugin')];
+				$plugins[JRequest::getVar('oldPlugin')] = null;
+			}
+
+			$item->plugins = $this->createIniString($plugins);
+
+			$this->updatePluginsData($item);
+
+		}
+	}
+
+	/**
+	 * Parses an ini string while preserving whitespace
+	 *
+	 * @param $ini
+	 *
+	 * @return array
+	 */
+	private function parseIni($ini)
+	{
+		$result = array();
+		foreach (explode("\n", rtrim($ini, "\n")) as $string)
+		{
+			$parts             = explode("=", $string);
+			$result[$parts[0]] = $parts[1];
 		}
 
-		return $iniString;
+		return $result;
+	}
+
+	/**
+	 * Resets all K2 item's alias field to be the default based on title
+	 *
+	 * @param $items
+	 */
+	private function resetK2Aliases($items)
+	{
+		foreach ($items as $item)
+		{
+
+			$query = ' UPDATE ' . $this->db->nameQuote('#__k2_items') .
+				' SET ' . $this->db->nameQuote('alias') . ' = ' . $this->db->quote(JFilterOutput::stringURLSafe($item->title)) .
+				' WHERE ' . $this->db->nameQuote('id') . ' = ' . $this->db->quote($item->id);
+
+			$this->db->setQuery($query);
+
+			if ($this->db->query())
+			{
+				JFactory::getApplication()->enqueueMessage('Updating ' . $item->title);
+			}
+
+			$this->checkDbError();
+		}
+	}
+
+	private function rewritePluginsIni()
+	{
+		foreach ($this->getK2Items() as $item)
+		{
+			$iniString = null;
+			foreach (explode(PHP_EOL, rtrim($item->plugins, PHP_EOL)) as $string)
+			{
+				$parts = explode("=", $string);
+				$iniString .= $parts[0] . '=' . $parts[1] . PHP_EOL;
+			}
+
+			$item->plugins = rtrim($iniString, PHP_EOL);
+
+			$this->updatePluginsData($item);
+		}
+	}
+
+	/**
+	 * Updates a module's parameters with the passed params array
+	 *
+	 * @param $module object
+	 * @param $params array
+	 */
+	private function setModuleParams($module, $params)
+	{
+		$query = ' UPDATE ' . $this->db->nameQuote('#__modules') .
+			' SET ' . $this->db->nameQuote('params') . ' = ' . $this->db->quote($this->createIniString($params)) .
+			' WHERE ' . $this->db->nameQuote('id') . ' = ' . $this->db->quote($module->id);
+
+		$this->db->setQuery($query);
+
+		if ($this->db->query())
+		{
+			JFactory::getApplication()->enqueueMessage('Updating ' . $module->title);
+		}
+
+		$this->checkDbError();
+
 	}
 
 	/**
@@ -249,44 +340,5 @@ class plgSystemK2utilities extends JPlugin
 		}
 
 		$this->checkDbError();
-	}
-
-	/**
-	 * Retrieves extra field definition from item values
-	 *
-	 * @param $extra_field
-	 *
-	 * @return mixed
-	 */
-	private function lookupExtraField($extra_field)
-	{
-		$query = ' SELECT *
-			 FROM ' . $this->db->nameQuote('#__k2_extra_fields') .
-			' WHERE ' . $this->db->nameQuote('id') . ' = ' . $this->db->quote($extra_field->id);
-
-		$this->db->setQuery($query);
-		$k2item = $this->db->loadObject();
-		$this->checkDbError();
-
-		return $k2item;
-	}
-
-	/**
-	 * Checks for any database errors after running a query
-	 *
-	 * @param null $backtrace
-	 */
-	private function checkDbError($backtrace = null)
-	{
-		if ($error = $this->db->getErrorMsg())
-		{
-			if ($backtrace)
-			{
-				$e = new Exception();
-				$error .= "\n" . $e->getTraceAsString();
-			}
-
-			JError::raiseWarning(100, $error);
-		}
 	}
 }
